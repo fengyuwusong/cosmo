@@ -266,6 +266,7 @@ func optionsFromResources(logger *zap.Logger, config *config.Config, reloadPersi
 		WithMCP(config.MCP),
 		WithConnectRPC(config.ConnectRPC),
 		WithPlugins(config.Plugins),
+		WithGRPCProtocol(config.GRPCProtocol),
 		WithDemoMode(config.DemoMode),
 		WithStreamsHandlerConfiguration(config.Events.Handlers),
 		WithReloadPersistentState(reloadPersistentState),

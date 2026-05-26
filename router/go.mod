@@ -3,7 +3,7 @@ module github.com/wundergraph/cosmo/router
 go 1.25.0
 
 require (
-	connectrpc.com/connect v1.16.2
+	connectrpc.com/connect v1.19.2
 	github.com/andybalholm/brotli v1.1.0 // indirect
 	github.com/buger/jsonparser v1.1.2
 	github.com/cespare/xxhash/v2 v2.3.0
