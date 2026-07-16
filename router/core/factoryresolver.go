@@ -9,12 +9,14 @@ import (
 	"slices"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/buger/jsonparser"
 	"github.com/jensneuse/abstractlogger"
 	"go.uber.org/zap"
 
 	"github.com/wundergraph/cosmo/router/gen/proto/wg/cosmo/common"
 	nodev1 "github.com/wundergraph/cosmo/router/gen/proto/wg/cosmo/node/v1"
+	rcontext "github.com/wundergraph/cosmo/router/internal/context"
 	"github.com/wundergraph/cosmo/router/pkg/config"
 	"github.com/wundergraph/cosmo/router/pkg/grpcconnector"
 	rmetric "github.com/wundergraph/cosmo/router/pkg/metric"
@@ -69,6 +71,7 @@ type DefaultFactoryResolver struct {
 	engineCtx context.Context
 
 	subgraphHTTPClients map[string]*http.Client
+	rpcTransports       map[string]grpcdatasource.RPCTransport
 	connector           *grpcconnector.Connector
 
 	factoryLogger abstractlogger.Logger
@@ -80,12 +83,18 @@ type DefaultFactoryResolver struct {
 	subscriptionClientOptions     []graphql_datasource.SubscriptionClientOption
 }
 
+type ConnectSubgraphConfiguration struct {
+	BaseURL  string
+	Encoding grpcdatasource.ConnectEncoding
+}
+
 func NewDefaultFactoryResolver(
 	ctx context.Context,
 	transportOptions *TransportOptions,
 	subscriptionClientOptions *SubscriptionClientOptions,
 	baseTransport http.RoundTripper,
 	subgraphTransports map[string]http.RoundTripper,
+	connectSubgraphs map[string]ConnectSubgraphConfiguration,
 	connector *grpcconnector.Connector,
 	log *zap.Logger,
 	enableNetPoll bool,
@@ -120,6 +129,25 @@ func NewDefaultFactoryResolver(
 			}
 			subgraphHTTPClients[subgraph] = subgraphClient
 		}
+	}
+
+	rpcTransports := make(map[string]grpcdatasource.RPCTransport, len(connectSubgraphs))
+	for subgraphName, connectConfig := range connectSubgraphs {
+		httpClient := http.DefaultClient
+		if subgraphClient, ok := subgraphHTTPClients[subgraphName]; ok {
+			httpClient = subgraphClient
+		} else if baseTransport != nil {
+			httpClient = &http.Client{
+				Timeout:   transportOptions.SubgraphTransportOptions.RequestTimeout,
+				Transport: transportFactory.RoundTripper(baseTransport),
+			}
+		}
+
+		rpcTransports[subgraphName] = grpcdatasource.NewConnectTransport(grpcdatasource.ConnectTransportConfig{
+			BaseURL:    connectConfig.BaseURL,
+			HTTPClient: subgraphIdentityHTTPClient{subgraphName: subgraphName, client: httpClient},
+			Encoding:   connectConfig.Encoding,
+		})
 	}
 
 	var factoryLogger abstractlogger.Logger
@@ -158,6 +186,7 @@ func NewDefaultFactoryResolver(
 		factoryLogger:                 factoryLogger,
 		engineCtx:                     ctx,
 		subgraphHTTPClients:           subgraphHTTPClients,
+		rpcTransports:                 rpcTransports,
 		connector:                     connector,
 		instanceData:                  instanceData,
 		baseTransport:                 baseTransport,
@@ -168,6 +197,10 @@ func NewDefaultFactoryResolver(
 }
 
 func (d *DefaultFactoryResolver) ResolveGraphqlFactory(subgraphName string) (plan.PlannerFactory[graphql_datasource.Configuration], error) {
+	if transport, ok := d.rpcTransports[subgraphName]; ok {
+		return graphql_datasource.NewFactoryRPCTransport(d.engineCtx, transport)
+	}
+
 	if d.connector != nil {
 		// If the connector is not nil, we try to get the provider for the subgraph.
 		// In case of a provider, we use the gRPC client provider to create the factory.
@@ -210,6 +243,16 @@ func (d *DefaultFactoryResolver) ResolveGraphqlFactory(subgraphName string) (pla
 	}
 
 	return graphql_datasource.NewFactory(d.engineCtx, defaultHTTPClient, subscriptionClient)
+}
+
+type subgraphIdentityHTTPClient struct {
+	subgraphName string
+	client       connect.HTTPClient
+}
+
+func (c subgraphIdentityHTTPClient) Do(req *http.Request) (*http.Response, error) {
+	ctx := context.WithValue(req.Context(), rcontext.CurrentSubgraphContextKey{}, c.subgraphName)
+	return c.client.Do(req.WithContext(ctx))
 }
 
 func (d *DefaultFactoryResolver) ResolveStaticFactory() (factory plan.PlannerFactory[staticdatasource.Configuration], err error) {

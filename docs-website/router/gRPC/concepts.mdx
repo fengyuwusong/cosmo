@@ -246,6 +246,34 @@ When implementing gRPC integration in your GraphQL Federation, you have two main
 | **Scaling** | Independent per service | Coupled to router |
 | **Operational Complexity** | Higher - distributed ops | Lower - unified ops |
 
+## Remote Service Transport Protocols
+
+The Router can call remote gRPC service subgraphs with either native gRPC or ConnectRPC. This changes only the network transport: GraphQL planning, protobuf mappings, batching, entity lookups, and field resolvers use the same datasource pipeline.
+
+- **Native gRPC** is the default and uses resolver-style routing URLs such as `dns:///service:443`.
+- **ConnectRPC** uses absolute `http://` or `https://` routing URLs and supports protobuf or JSON request encoding.
+- **Router Plugins** always use native gRPC.
+
+The protocol is selected globally with `grpc_protocol`. Mixed native gRPC and ConnectRPC remote subgraphs are not supported in the first release.
+
+```yaml config.yaml
+grpc_protocol:
+  default_protocol: connectrpc
+  connectrpc_encoding: proto
+```
+
+ConnectRPC uses the Router's shared HTTP client. As a result, it inherits `tls.client`, HTTP proxy environment variables, connection-pool limits, circuit breakers, origin hooks, request timeouts, and query retry rules. Native gRPC and Router Plugins continue to use `tls.client_grpc`.
+
+<Warning>
+  Query-backed RPCs can be retried when the HTTP retry policy matches a connection error, timeout, or retryable status code. Ensure those RPCs are idempotent, or disable or narrow retries for the affected subgraph. Mutations retain the Router's existing no-retry protection.
+</Warning>
+
+The default HTTP request timeout is 60 seconds and includes reading the response body. Origin hooks begin receiving Connect protobuf or JSON payloads, and HTTP proxy and connection-pool settings also become active. Connect responses are limited to 10 MB, while native gRPC uses its default 4 MB receive limit. For binary metadata, a `connect-go` handler must explicitly decode `-bin` headers with `connect.DecodeBinaryHeader`.
+
+The datasource currently supports unary RPCs only. GraphQL subscription fields cannot be served by native gRPC or ConnectRPC service subgraphs.
+
+For URL requirements and a staged migration procedure, see [gRPC Services](/router/gRPC/grpc-services#connectrpc-transport).
+
 
 ## Roadmap
 

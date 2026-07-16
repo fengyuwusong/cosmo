@@ -38,6 +38,7 @@ type Subgraph struct {
 	Name      string
 	Url       *url.URL
 	UrlString string
+	RawURL    string
 }
 
 type ClientInfo struct {
@@ -526,7 +527,15 @@ func (c *requestContext) GetStringMapStringSlice(key string) (smss map[string][]
 }
 
 func (c *requestContext) ActiveSubgraph(subgraphRequest *http.Request) *Subgraph {
-	if subgraphRequest == nil || subgraphRequest.URL == nil {
+	if subgraphRequest == nil {
+		return nil
+	}
+	if subgraphName, ok := subgraphRequest.Context().Value(rcontext.CurrentSubgraphContextKey{}).(string); ok {
+		if subgraph := c.subgraphResolver.ByName(subgraphName); subgraph != nil {
+			return subgraph
+		}
+	}
+	if subgraphRequest.URL == nil {
 		return nil
 	}
 	return c.subgraphResolver.BySubgraphURL(subgraphRequest.URL.String())
@@ -851,14 +860,16 @@ func (o *operationContext) Cost() (OperationCost, error) {
 }
 
 type SubgraphResolver struct {
-	subgraphsByURL map[string]*Subgraph
-	subgraphsByID  map[string]*Subgraph
+	subgraphsByURL  map[string]*Subgraph
+	subgraphsByID   map[string]*Subgraph
+	subgraphsByName map[string]*Subgraph
 }
 
 func NewSubgraphResolver(subgraphs []Subgraph) *SubgraphResolver {
 	resolver := &SubgraphResolver{
-		subgraphsByURL: make(map[string]*Subgraph, len(subgraphs)),
-		subgraphsByID:  make(map[string]*Subgraph, len(subgraphs)),
+		subgraphsByURL:  make(map[string]*Subgraph, len(subgraphs)),
+		subgraphsByID:   make(map[string]*Subgraph, len(subgraphs)),
+		subgraphsByName: make(map[string]*Subgraph, len(subgraphs)),
 	}
 	for i := range subgraphs {
 		sg := Subgraph{
@@ -866,6 +877,7 @@ func NewSubgraphResolver(subgraphs []Subgraph) *SubgraphResolver {
 			Name:      subgraphs[i].Name,
 			Url:       subgraphs[i].Url,
 			UrlString: subgraphs[i].UrlString,
+			RawURL:    subgraphs[i].RawURL,
 		}
 		// TODO: In case there are multiple subgraphs with the same URL, the previous
 		// one will be overwritten. To investigate if this causes an issue.
@@ -875,12 +887,19 @@ func NewSubgraphResolver(subgraphs []Subgraph) *SubgraphResolver {
 		if sg.Id != "" {
 			resolver.subgraphsByID[sg.Id] = &sg
 		}
+		if sg.Name != "" {
+			resolver.subgraphsByName[sg.Name] = &sg
+		}
 	}
 	return resolver
 }
 
 func (s *SubgraphResolver) ByID(subgraphID string) *Subgraph {
 	return s.subgraphsByID[subgraphID]
+}
+
+func (s *SubgraphResolver) ByName(subgraphName string) *Subgraph {
+	return s.subgraphsByName[subgraphName]
 }
 
 func (s *SubgraphResolver) BySubgraphURL(u string) *Subgraph {

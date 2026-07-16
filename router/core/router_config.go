@@ -154,6 +154,7 @@ type Config struct {
 	hostName                      string
 	mcp                           config.MCPConfiguration
 	connectRPC                    config.ConnectRPCConfiguration
+	grpcProtocol                  config.GRPCProtocolConfiguration
 	plugins                       config.PluginsConfiguration
 	grpcPluginDialOptions         []grpc.DialOption
 	tracingAttributes             []config.CustomAttribute
@@ -351,6 +352,8 @@ func (c *Config) Usage() map[string]any {
 	usage["mcp_expose_schema"] = c.mcp.ExposeSchema
 
 	usage["connect_rpc"] = c.connectRPC.Enabled
+	usage["grpc_subgraph_protocol"] = c.grpcProtocol.DefaultProtocol
+	usage["connectrpc_subgraph_encoding"] = c.grpcProtocol.ConnectRPCEncoding
 
 	usage["cosmo_cdn"] = c.cdnConfig.URL == "https://cosmo-cdn.wundergraph.com"
 

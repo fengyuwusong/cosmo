@@ -270,6 +270,10 @@
     },
     "GraphQLEndpoint": ""
   },
+  "GRPCProtocol": {
+    "DefaultProtocol": "connectrpc",
+    "ConnectRPCEncoding": "json"
+  },
   "DemoMode": true,
   "Modules": {
     "myModule": {

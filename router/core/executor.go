@@ -31,6 +31,7 @@ type ExecutorConfigurationBuilder struct {
 	transportOptions *TransportOptions
 	baseTripper      http.RoundTripper
 	subgraphTrippers map[string]http.RoundTripper
+	connectSubgraphs map[string]ConnectSubgraphConfiguration
 	pluginHost       *grpcconnector.Connector
 
 	subscriptionClientOptions *SubscriptionClientOptions
@@ -230,6 +231,7 @@ func (b *ExecutorConfigurationBuilder) buildPlannerConfiguration(ctx context.Con
 		b.subscriptionClientOptions,
 		b.baseTripper,
 		b.subgraphTrippers,
+		b.connectSubgraphs,
 		b.pluginHost,
 		b.logger,
 		routerEngineCfg.Execution.EnableNetPoll,

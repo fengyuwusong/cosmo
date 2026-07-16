@@ -52,6 +52,7 @@ import (
 	"github.com/wundergraph/cosmo/router/pkg/grpcconnector/grpcplugin"
 	"github.com/wundergraph/cosmo/router/pkg/grpcconnector/grpcpluginoci"
 	"github.com/wundergraph/cosmo/router/pkg/grpcconnector/grpcremote"
+	"github.com/wundergraph/cosmo/router/pkg/grpcprotocol"
 	"github.com/wundergraph/cosmo/router/pkg/health"
 	"github.com/wundergraph/cosmo/router/pkg/logging"
 	rmetric "github.com/wundergraph/cosmo/router/pkg/metric"
@@ -340,6 +341,14 @@ func newGraphServer(routerCtx context.Context, r *Router, response *routerconfig
 
 	routingUrlGroupings, err := getRoutingUrlGroupingForCircuitBreakers(response.Config, s.overrideRoutingURLConfiguration, s.overrides)
 	if err != nil {
+		return nil, err
+	}
+
+	resolvedGRPCProtocol, err := grpcprotocol.Resolve(s.grpcProtocol)
+	if err != nil {
+		return nil, fmt.Errorf("invalid grpc_protocol configuration: %w", err)
+	}
+	if err := validateGRPCSubgraphRoutingURLs(response.Config, resolvedGRPCProtocol.Protocol, s.overrideRoutingURLConfiguration, s.overrides); err != nil {
 		return nil, err
 	}
 
@@ -1216,6 +1225,11 @@ func (s *graphServer) buildGraphMux(
 		return nil, err
 	}
 
+	resolvedGRPCProtocol, err := grpcprotocol.Resolve(s.grpcProtocol)
+	if err != nil {
+		return nil, fmt.Errorf("invalid grpc_protocol configuration: %w", err)
+	}
+
 	computeSha256, err := gm.buildOperationCaches(s)
 	if err != nil {
 		return nil, err
@@ -1492,6 +1506,7 @@ func (s *graphServer) buildGraphMux(
 		tracingAttributeExpressions:   tracingAttExpressions,
 		defaultClientTLS:              opts.defaultClientTLS,
 		perSubgraphTLS:                opts.perSubgraphTLS,
+		protocol:                      resolvedGRPCProtocol.Protocol,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup plugin host: %w", err)
@@ -1515,6 +1530,7 @@ func (s *graphServer) buildGraphMux(
 		baseURL:          s.baseURL,
 		baseTripper:      s.baseTransport,
 		subgraphTrippers: subgraphTippers,
+		connectSubgraphs: connectSubgraphConfigurations(opts.EngineConfig, subgraphs, resolvedGRPCProtocol),
 		pluginHost:       s.connector,
 		logger:           s.logger,
 		trackUsageInfo:   s.graphqlMetricsConfig.Enabled || s.metricConfig.Prometheus.PromSchemaFieldUsage.Enabled,
@@ -1988,6 +2004,7 @@ type setupConnectorOpts struct {
 	tracingAttributeExpressions   *attributeExpressions
 	defaultClientTLS              *tls.Config
 	perSubgraphTLS                map[string]*tls.Config
+	protocol                      grpcprotocol.Protocol
 }
 
 func (s *graphServer) setupConnector(ctx context.Context, opts setupConnectorOpts) error {
@@ -2014,6 +2031,9 @@ func (s *graphServer) setupConnector(ctx context.Context, opts setupConnectorOpt
 
 		pluginConfig := grpcConfig.GetPlugin()
 		if pluginConfig == nil {
+			if opts.protocol == grpcprotocol.ProtocolConnectRPC {
+				continue
+			}
 			// Resolve per-subgraph gRPC TLS config, falling back to the default.
 			var grpcTLS *tls.Config
 			if sgTLS, ok := opts.perSubgraphTLS[sg.Name]; ok {
@@ -2367,8 +2387,9 @@ func configureSubgraphOverwrites(
 	for _, sg := range configSubgraphs {
 
 		subgraph := Subgraph{
-			Id:   sg.Id,
-			Name: sg.Name,
+			Id:     sg.Id,
+			Name:   sg.Name,
+			RawURL: sg.RoutingUrl,
 		}
 
 		// Validate subgraph url. Note that it can be empty if the subgraph is virtual
@@ -2430,6 +2451,7 @@ func configureSubgraphOverwrites(
 					return nil, fmt.Errorf("failed to parse override url '%s': %w", overrideURL, err)
 				}
 				subgraph.UrlString = subgraph.Url.String()
+				subgraph.RawURL = overrideURL
 			}
 
 			// If skipOverrides is true we do not want to update the references and only care about
@@ -2462,6 +2484,121 @@ func configureSubgraphOverwrites(
 	}
 
 	return subgraphs, nil
+}
+
+func connectSubgraphConfigurations(
+	engineConfig *nodev1.EngineConfiguration,
+	subgraphs []Subgraph,
+	protocol grpcprotocol.ResolvedConfiguration,
+) map[string]ConnectSubgraphConfiguration {
+	if protocol.Protocol != grpcprotocol.ProtocolConnectRPC {
+		return nil
+	}
+
+	subgraphsByID := make(map[string]Subgraph, len(subgraphs))
+	for _, subgraph := range subgraphs {
+		subgraphsByID[subgraph.Id] = subgraph
+	}
+
+	connectSubgraphs := make(map[string]ConnectSubgraphConfiguration)
+	for _, datasourceConfig := range engineConfig.DatasourceConfigurations {
+		grpcConfig := datasourceConfig.GetCustomGraphql().GetGrpc()
+		if grpcConfig == nil || grpcConfig.GetPlugin() != nil {
+			continue
+		}
+		subgraph, ok := subgraphsByID[datasourceConfig.Id]
+		if !ok {
+			continue
+		}
+		connectSubgraphs[subgraph.Name] = ConnectSubgraphConfiguration{
+			BaseURL:  subgraph.UrlString,
+			Encoding: protocol.Encoding,
+		}
+	}
+
+	return connectSubgraphs
+}
+
+type grpcRoutingURLIssue struct {
+	subgraph string
+	rawURL   string
+	reason   string
+	contexts map[string]struct{}
+}
+
+func validateGRPCSubgraphRoutingURLs(
+	routerConfig *nodev1.RouterConfig,
+	protocol grpcprotocol.Protocol,
+	overrideRoutingURLConfig config.OverrideRoutingURLConfiguration,
+	overridesConfig config.OverridesConfiguration,
+) error {
+	issues := make(map[string]*grpcRoutingURLIssue)
+
+	validate := func(contextName string, engineConfig *nodev1.EngineConfiguration, configSubgraphs []*nodev1.Subgraph) error {
+		subgraphs, err := configureSubgraphOverwrites(engineConfig, configSubgraphs, overrideRoutingURLConfig, overridesConfig, true)
+		if err != nil {
+			return err
+		}
+		subgraphsByID := make(map[string]Subgraph, len(subgraphs))
+		for _, subgraph := range subgraphs {
+			subgraphsByID[subgraph.Id] = subgraph
+		}
+
+		for _, datasourceConfig := range engineConfig.DatasourceConfigurations {
+			grpcConfig := datasourceConfig.GetCustomGraphql().GetGrpc()
+			if grpcConfig == nil || grpcConfig.GetPlugin() != nil {
+				continue
+			}
+			subgraph, ok := subgraphsByID[datasourceConfig.Id]
+			if !ok {
+				continue
+			}
+			if err := grpcprotocol.ValidateRoutingURL(protocol, subgraph.RawURL); err != nil {
+				key := subgraph.Name + "\x00" + subgraph.RawURL + "\x00" + err.Error()
+				issue, exists := issues[key]
+				if !exists {
+					issue = &grpcRoutingURLIssue{
+						subgraph: subgraph.Name,
+						rawURL:   subgraph.RawURL,
+						reason:   err.Error(),
+						contexts: make(map[string]struct{}),
+					}
+					issues[key] = issue
+				}
+				issue.contexts[contextName] = struct{}{}
+			}
+		}
+		return nil
+	}
+
+	if err := validate("base graph", routerConfig.GetEngineConfig(), routerConfig.GetSubgraphs()); err != nil {
+		return err
+	}
+	for featureFlagName, featureConfig := range routerConfig.GetFeatureFlagConfigs().GetConfigByFeatureFlagName() {
+		if err := validate(fmt.Sprintf("feature flag %q", featureFlagName), featureConfig.GetEngineConfig(), featureConfig.GetSubgraphs()); err != nil {
+			return err
+		}
+	}
+
+	if len(issues) == 0 {
+		return nil
+	}
+
+	messages := make([]string, 0, len(issues))
+	for _, issue := range issues {
+		contexts := slices.Sorted(maps.Keys(issue.contexts))
+		messages = append(messages, fmt.Sprintf(
+			"subgraph %q (%s) selects protocol %q with routing URL %q: %s",
+			issue.subgraph,
+			strings.Join(contexts, ", "),
+			protocol,
+			issue.rawURL,
+			issue.reason,
+		))
+	}
+	slices.Sort(messages)
+
+	return fmt.Errorf("invalid gRPC subgraph routing URL configuration:\n- %s", strings.Join(messages, "\n- "))
 }
 
 // currentGraphMuxes returns a list of currently active graph muxes

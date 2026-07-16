@@ -286,6 +286,7 @@ func optionsFromResources(logger *zap.Logger, config *config.Config, reloadPersi
 		WithCacheWarmupConfig(&config.CacheWarmup),
 		WithMCP(config.MCP),
 		WithConnectRPC(config.ConnectRPC),
+		WithGRPCProtocol(config.GRPCProtocol),
 		WithPlugins(config.Plugins),
 		WithDemoMode(config.DemoMode),
 		WithStreamsHandlerConfiguration(config.Events.Handlers),
