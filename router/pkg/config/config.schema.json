@@ -4294,6 +4294,25 @@
         }
       }
     },
+    "grpc_protocol": {
+      "type": "object",
+      "description": "Selects the upstream protocol used for remote gRPC service subgraphs. This is separate from connect_rpc, which configures the Router's own ConnectRPC server.",
+      "additionalProperties": false,
+      "properties": {
+        "default_protocol": {
+          "type": "string",
+          "enum": ["grpc", "connectrpc"],
+          "default": "grpc",
+          "description": "The protocol used for every remote gRPC service subgraph. Router Plugin subgraphs always use native gRPC."
+        },
+        "connectrpc_encoding": {
+          "type": "string",
+          "enum": ["proto", "json"],
+          "default": "proto",
+          "description": "The global ConnectRPC request encoding. It may be configured while native gRPC is selected and becomes active when default_protocol is connectrpc."
+        }
+      }
+    },
     "plugins": {
       "type": "object",
       "description": "The configuration for the router gRPC plugins.",
