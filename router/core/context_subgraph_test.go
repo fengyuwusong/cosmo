@@ -10,7 +10,7 @@ import (
 	rcontext "github.com/wundergraph/cosmo/router/internal/context"
 )
 
-func TestActiveSubgraphPrefersExplicitIdentity(t *testing.T) {
+func TestActiveSubgraphFallsBackToExplicitIdentityForProcedureURL(t *testing.T) {
 	resolver := NewSubgraphResolver([]Subgraph{
 		{Id: "products-id", Name: "products", Url: mustParseURL(t, "https://products.example/rpc"), UrlString: "https://products.example/rpc"},
 		{Id: "other-id", Name: "other", Url: mustParseURL(t, "https://other.example/graphql"), UrlString: "https://other.example/graphql"},
@@ -26,6 +26,24 @@ func TestActiveSubgraphPrefersExplicitIdentity(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, "products-id", requestContext.ActiveSubgraph(request).Id)
+}
+
+func TestActiveSubgraphPrefersExactURLOverExplicitIdentity(t *testing.T) {
+	resolver := NewSubgraphResolver([]Subgraph{
+		{Id: "products-id", Name: "products", Url: mustParseURL(t, "https://products.example/graphql"), UrlString: "https://products.example/graphql"},
+		{Id: "other-id", Name: "other", Url: mustParseURL(t, "https://other.example/graphql"), UrlString: "https://other.example/graphql"},
+	})
+	requestContext := &requestContext{subgraphResolver: resolver}
+
+	request, err := http.NewRequestWithContext(
+		context.WithValue(context.Background(), rcontext.CurrentSubgraphContextKey{}, "products"),
+		http.MethodPost,
+		"https://other.example/graphql",
+		http.NoBody,
+	)
+	require.NoError(t, err)
+
+	require.Equal(t, "other-id", requestContext.ActiveSubgraph(request).Id)
 }
 
 func TestActiveSubgraphResolvesExplicitIdentityWithoutURL(t *testing.T) {

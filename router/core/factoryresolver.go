@@ -9,14 +9,12 @@ import (
 	"slices"
 	"time"
 
-	"connectrpc.com/connect"
 	"github.com/buger/jsonparser"
 	"github.com/jensneuse/abstractlogger"
 	"go.uber.org/zap"
 
 	"github.com/wundergraph/cosmo/router/gen/proto/wg/cosmo/common"
 	nodev1 "github.com/wundergraph/cosmo/router/gen/proto/wg/cosmo/node/v1"
-	rcontext "github.com/wundergraph/cosmo/router/internal/context"
 	"github.com/wundergraph/cosmo/router/pkg/config"
 	"github.com/wundergraph/cosmo/router/pkg/grpcconnector"
 	rmetric "github.com/wundergraph/cosmo/router/pkg/metric"
@@ -145,7 +143,7 @@ func NewDefaultFactoryResolver(
 
 		rpcTransports[subgraphName] = grpcdatasource.NewConnectTransport(grpcdatasource.ConnectTransportConfig{
 			BaseURL:    connectConfig.BaseURL,
-			HTTPClient: subgraphIdentityHTTPClient{subgraphName: subgraphName, client: httpClient},
+			HTTPClient: httpClient,
 			Encoding:   connectConfig.Encoding,
 		})
 	}
@@ -243,16 +241,6 @@ func (d *DefaultFactoryResolver) ResolveGraphqlFactory(subgraphName string) (pla
 	}
 
 	return graphql_datasource.NewFactory(d.engineCtx, defaultHTTPClient, subscriptionClient)
-}
-
-type subgraphIdentityHTTPClient struct {
-	subgraphName string
-	client       connect.HTTPClient
-}
-
-func (c subgraphIdentityHTTPClient) Do(req *http.Request) (*http.Response, error) {
-	ctx := context.WithValue(req.Context(), rcontext.CurrentSubgraphContextKey{}, c.subgraphName)
-	return c.client.Do(req.WithContext(ctx))
 }
 
 func (d *DefaultFactoryResolver) ResolveStaticFactory() (factory plan.PlannerFactory[staticdatasource.Configuration], err error) {

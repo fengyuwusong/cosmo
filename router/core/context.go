@@ -530,15 +530,17 @@ func (c *requestContext) ActiveSubgraph(subgraphRequest *http.Request) *Subgraph
 	if subgraphRequest == nil {
 		return nil
 	}
+	if subgraphRequest.URL != nil {
+		if subgraph := c.subgraphResolver.BySubgraphURL(subgraphRequest.URL.String()); subgraph != nil {
+			return subgraph
+		}
+	}
 	if subgraphName, ok := subgraphRequest.Context().Value(rcontext.CurrentSubgraphContextKey{}).(string); ok {
 		if subgraph := c.subgraphResolver.ByName(subgraphName); subgraph != nil {
 			return subgraph
 		}
 	}
-	if subgraphRequest.URL == nil {
-		return nil
-	}
-	return c.subgraphResolver.BySubgraphURL(subgraphRequest.URL.String())
+	return nil
 }
 
 func (c *requestContext) SubgraphByID(subgraphID string) *Subgraph {
