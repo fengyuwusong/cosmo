@@ -19,7 +19,7 @@ import {
   getLogger,
   handleError,
   isValidGraphName,
-  isValidGrpcNamingScheme,
+  isValidGrpcSubgraphRoutingURL,
   isValidLabels,
 } from '../../util.js';
 import { UnauthorizedError } from '../../errors/errors.js';
@@ -167,14 +167,13 @@ export function createFederatedSubgraph(
           admissionErrors: [],
         };
       }
-      // For GRPC_SERVICE subgraphs, validate that routing URL follows gRPC naming scheme
-      if (req.type === SubgraphType.GRPC_SERVICE && !isValidGrpcNamingScheme(routingUrl)) {
+      if (req.type === SubgraphType.GRPC_SERVICE && !isValidGrpcSubgraphRoutingURL(routingUrl)) {
         return {
           response: {
             code: EnumStatusCode.ERR,
             details:
-              `Routing URL must follow gRPC naming scheme. ` +
-              `See https://grpc.io/docs/guides/custom-name-resolution/ for examples.`,
+              `Routing URL "${routingUrl}" is not valid for a gRPC service subgraph. ` +
+              `Use http(s)://host:port for ConnectRPC or a supported gRPC naming scheme for native gRPC.`,
           },
           compositionErrors: [],
           admissionErrors: [],

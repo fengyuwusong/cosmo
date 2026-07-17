@@ -930,7 +930,7 @@ describe('Create subgraph tests', () => {
       expect(createGrpcServiceSubgraphResp.response?.details).toBe('Routing URL "invalid-url" is not a valid URL');
     });
 
-    test('Should not allow creating a GRPC service subgraph with HTTP/HTTPS routing URL', async (testContext) => {
+    test('Should allow creating a GRPC service subgraph with HTTP/HTTPS routing URL', async (testContext) => {
       const { client, server } = await SetupTest({
         dbname,
       });
@@ -938,7 +938,6 @@ describe('Create subgraph tests', () => {
 
       const grpcServiceLabel = genUniqueLabel('service');
 
-      // Test HTTP URL
       const createGrpcServiceSubgraphRespHttp = await client.createFederatedSubgraph({
         name: genID('grpc-service-http'),
         namespace: DEFAULT_NAMESPACE,
@@ -947,12 +946,8 @@ describe('Create subgraph tests', () => {
         labels: [grpcServiceLabel],
       });
 
-      expect(createGrpcServiceSubgraphRespHttp.response?.code).toBe(EnumStatusCode.ERR);
-      expect(createGrpcServiceSubgraphRespHttp.response?.details).toContain(
-        'Routing URL must follow gRPC naming scheme',
-      );
+      expect(createGrpcServiceSubgraphRespHttp.response?.code).toBe(EnumStatusCode.OK);
 
-      // Test HTTPS URL
       const createGrpcServiceSubgraphRespHttps = await client.createFederatedSubgraph({
         name: genID('grpc-service-https'),
         namespace: DEFAULT_NAMESPACE,
@@ -961,10 +956,31 @@ describe('Create subgraph tests', () => {
         labels: [grpcServiceLabel],
       });
 
-      expect(createGrpcServiceSubgraphRespHttps.response?.code).toBe(EnumStatusCode.ERR);
-      expect(createGrpcServiceSubgraphRespHttps.response?.details).toContain(
-        'Routing URL must follow gRPC naming scheme',
-      );
+      expect(createGrpcServiceSubgraphRespHttps.response?.code).toBe(EnumStatusCode.OK);
+    });
+
+    test('Should apply GRPC routing URL validation to feature subgraphs', async (testContext) => {
+      const { client, server } = await SetupTest({ dbname });
+      testContext.onTestFinished(() => server.close());
+
+      const baseSubgraphName = genID('grpc-service-base');
+      const createBaseResponse = await client.createFederatedSubgraph({
+        name: baseSubgraphName,
+        namespace: DEFAULT_NAMESPACE,
+        type: SubgraphType.GRPC_SERVICE,
+        routingUrl: 'dns:///projects:443',
+        labels: [genUniqueLabel('grpc-service')],
+      });
+      expect(createBaseResponse.response?.code).toBe(EnumStatusCode.OK);
+
+      const createFeatureResponse = await client.createFederatedSubgraph({
+        name: genID('grpc-service-feature'),
+        namespace: DEFAULT_NAMESPACE,
+        isFeatureSubgraph: true,
+        baseSubgraphName,
+        routingUrl: 'https://projects.example.com/rpc',
+      });
+      expect(createFeatureResponse.response?.code).toBe(EnumStatusCode.OK);
     });
 
     test('Should allow creating a GRPC service subgraph with valid gRPC naming scheme URLs', async (testContext) => {
