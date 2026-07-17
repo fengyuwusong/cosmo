@@ -1,102 +1,84 @@
-// This file is used to spawn the projects service as a standalone gRPC service.
-// In contrast to the main.go in src which is used for gRPC plugins in the router.
-// This allows the service to be deployed independently and communicate via gRPC
-// with other services in the federation.
+// This file spawns the projects service as a standalone subgraph. The H2C
+// endpoint accepts Connect, gRPC, and gRPC-Web on the same port.
 
 package main
 
 import (
 	"context"
+	"errors"
 	"log"
-	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	projects "github.com/wundergraph/cosmo/demo/pkg/subgraphs/projects/generated"
+	"connectrpc.com/connect"
 	"github.com/wundergraph/cosmo/demo/pkg/subgraphs/projects/src/service"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 )
 
 const (
-	port = ":4011"
+	address = ":4011"
 )
 
-func recoveryInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("Recovered from panic: %v", r)
-		}
-	}()
-
-	return handler(ctx, req)
-}
-
-func loggingInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	start := time.Now()
-
-	resp, err := handler(ctx, req)
-
-	// Log the request details
-	log.Printf("Method: %s, Duration: %s, Error: %v",
-		info.FullMethod,
-		time.Since(start),
-		err,
-	)
-
-	return resp, err
-}
-
-func errorInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	resp, err := handler(ctx, req)
-	if err != nil {
-		if _, ok := status.FromError(err); !ok {
-			err = status.Errorf(codes.Internal, "internal server error: %v", err)
+func recoveryInterceptor() connect.UnaryInterceptorFunc {
+	return func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, request connect.AnyRequest) (response connect.AnyResponse, err error) {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					log.Printf("Recovered from panic: %v", recovered)
+					err = connect.NewError(connect.CodeInternal, errors.New("internal server error"))
+				}
+			}()
+			return next(ctx, request)
 		}
 	}
+}
 
-	return resp, err
+func loggingInterceptor() connect.UnaryInterceptorFunc {
+	return func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, request connect.AnyRequest) (connect.AnyResponse, error) {
+			start := time.Now()
+			response, err := next(ctx, request)
+			log.Printf("Method: %s, Duration: %s, Error: %v", request.Spec().Procedure, time.Since(start), err)
+			return response, err
+		}
+	}
 }
 
 func main() {
-	// Create a listener on the specified port
-	lis, err := net.Listen("tcp", port)
+	handler, err := service.NewConnectHandler(
+		&service.ProjectsService{},
+		connect.WithInterceptors(recoveryInterceptor(), loggingInterceptor()),
+	)
 	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
+		log.Fatalf("failed to create projects handler: %v", err)
 	}
 
-	// Create a new gRPC server
-	s := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(
-			recoveryInterceptor,
-			loggingInterceptor,
-			errorInterceptor,
-		),
-	)
+	server := &http.Server{
+		Addr:    address,
+		Handler: h2c.NewHandler(handler, &http2.Server{}),
+	}
 
-	// Register the service
-	projects.RegisterProjectsServiceServer(s, &service.ProjectsService{})
-
-	// Create a context that will be canceled on OS signals
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Start the server in a goroutine
 	go func() {
-		log.Printf("Starting gRPC server on %s", port)
-		if err := s.Serve(lis); err != nil {
-			log.Fatalf("failed to serve: %v", err)
+		log.Printf("Starting projects subgraph on %s (Connect, gRPC, gRPC-Web over H2C)", address)
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("server error: %v", err)
 		}
 	}()
 
-	// Wait for interrupt signal
 	<-ctx.Done()
 
-	// Gracefully stop the server
-	log.Println("Shutting down gRPC server...")
-	s.GracefulStop()
+	log.Println("Shutting down projects subgraph...")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("graceful shutdown failed: %v", err)
+	}
 	log.Println("Server stopped")
 }
