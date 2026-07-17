@@ -13,48 +13,63 @@ import (
 	"syscall"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/vanguard/vanguardgrpc"
+	projects "github.com/wundergraph/cosmo/demo/pkg/subgraphs/projects/generated"
 	"github.com/wundergraph/cosmo/demo/pkg/subgraphs/projects/src/service"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
 	address = ":4011"
 )
 
-func recoveryInterceptor() connect.UnaryInterceptorFunc {
-	return func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, request connect.AnyRequest) (response connect.AnyResponse, err error) {
-			defer func() {
-				if recovered := recover(); recovered != nil {
-					log.Printf("Recovered from panic: %v", recovered)
-					err = connect.NewError(connect.CodeInternal, errors.New("internal server error"))
-				}
-			}()
-			return next(ctx, request)
+func recoveryInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (response interface{}, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			log.Printf("Recovered from panic: %v", recovered)
+			response = nil
+			err = status.Error(codes.Internal, "internal server error")
 		}
-	}
+	}()
+
+	return handler(ctx, req)
 }
 
-func loggingInterceptor() connect.UnaryInterceptorFunc {
-	return func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, request connect.AnyRequest) (connect.AnyResponse, error) {
-			start := time.Now()
-			response, err := next(ctx, request)
-			log.Printf("Method: %s, Duration: %s, Error: %v", request.Spec().Procedure, time.Since(start), err)
-			return response, err
-		}
+func loggingInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	start := time.Now()
+	response, err := handler(ctx, req)
+	log.Printf("Method: %s, Duration: %s, Error: %v", info.FullMethod, time.Since(start), err)
+	return response, err
+}
+
+func errorInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	response, err := handler(ctx, req)
+	if err == nil {
+		return response, nil
 	}
+	if _, ok := status.FromError(err); ok {
+		return response, err
+	}
+	return response, status.Errorf(codes.Internal, "internal server error: %v", err)
 }
 
 func main() {
-	handler, err := service.NewConnectHandler(
-		&service.ProjectsService{},
-		connect.WithInterceptors(recoveryInterceptor(), loggingInterceptor()),
+	grpcServer := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(
+			recoveryInterceptor,
+			loggingInterceptor,
+			errorInterceptor,
+		),
 	)
+	projects.RegisterProjectsServiceServer(grpcServer, &service.ProjectsService{})
+
+	handler, err := vanguardgrpc.NewTranscoder(grpcServer)
 	if err != nil {
-		log.Fatalf("failed to create projects handler: %v", err)
+		log.Fatalf("failed to create projects transcoder: %v", err)
 	}
 
 	server := &http.Server{
@@ -80,5 +95,6 @@ func main() {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Printf("graceful shutdown failed: %v", err)
 	}
+	grpcServer.GracefulStop()
 	log.Println("Server stopped")
 }

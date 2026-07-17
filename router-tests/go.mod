@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	connectrpc.com/connect v1.19.2
+	connectrpc.com/vanguard v0.3.0
 	github.com/MicahParks/jwkset v0.11.0
 	github.com/buger/jsonparser v1.1.2
 	github.com/cloudflare/backoff v0.0.0-20240920015135-e46b80a3a7d0
@@ -47,7 +48,6 @@ require (
 )
 
 require (
-	connectrpc.com/vanguard v0.3.0 // indirect
 	github.com/99designs/gqlgen v0.17.76 // indirect
 	github.com/KimMachineGun/automemlimit v0.6.1 // indirect
 	github.com/MicahParks/keyfunc/v3 v3.6.2 // indirect

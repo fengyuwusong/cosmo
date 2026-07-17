@@ -3,13 +3,15 @@ module github.com/wundergraph/cosmo/demo/pkg/subgraphs/projects
 go 1.25.0
 
 require (
-	connectrpc.com/connect v1.19.2
+	connectrpc.com/vanguard v0.3.0
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/stretchr/testify v1.11.1
 	github.com/wundergraph/cosmo/router-plugin v0.0.0-20250808194725-de123ba1c65e
 	google.golang.org/grpc v1.81.1
 	google.golang.org/protobuf v1.36.11
 )
+
+require connectrpc.com/connect v1.19.2 // indirect
 
 require (
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect

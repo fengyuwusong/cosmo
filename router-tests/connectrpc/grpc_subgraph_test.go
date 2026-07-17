@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"connectrpc.com/vanguard/vanguardgrpc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	projects "github.com/wundergraph/cosmo/demo/pkg/subgraphs/projects/generated"
@@ -23,6 +24,7 @@ import (
 	"github.com/wundergraph/cosmo/router/core"
 	nodev1 "github.com/wundergraph/cosmo/router/gen/proto/wg/cosmo/node/v1"
 	"github.com/wundergraph/cosmo/router/pkg/config"
+	"google.golang.org/grpc"
 )
 
 func TestConnectRPCGRPCSubgraph(t *testing.T) {
@@ -223,7 +225,9 @@ func TestConnectRPCGRPCSubgraphRequestTimeout(t *testing.T) {
 func newProjectsConnectServer(t *testing.T, middleware func(http.Handler) http.Handler) *httptest.Server {
 	t.Helper()
 
-	projectsHandler, err := projectsservice.NewConnectHandler(&projectsservice.ProjectsService{})
+	grpcServer := grpc.NewServer()
+	projects.RegisterProjectsServiceServer(grpcServer, &projectsservice.ProjectsService{})
+	projectsHandler, err := vanguardgrpc.NewTranscoder(grpcServer)
 	require.NoError(t, err)
 
 	mutationHandler := connect.NewUnaryHandler(
