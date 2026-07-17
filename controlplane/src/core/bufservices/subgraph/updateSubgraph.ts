@@ -21,7 +21,7 @@ import {
   formatWebsocketSubprotocol,
   getLogger,
   handleError,
-  isValidGrpcSubgraphRoutingURL,
+  isValidGrpcNamingScheme,
   isValidLabels,
 } from '../../util.js';
 import { OrganizationWebhookService } from '../../webhooks/OrganizationWebhookService.js';
@@ -150,17 +150,18 @@ export function updateSubgraph(
           compositionWarnings: [],
         };
       }
+      // For GRPC_SERVICE subgraphs, validate that routing URL follows gRPC naming scheme
       if (
         req.routingUrl !== undefined &&
         subgraph.type === formatSubgraphType(SubgraphType.GRPC_SERVICE) &&
-        !isValidGrpcSubgraphRoutingURL(req.routingUrl)
+        !isValidGrpcNamingScheme(req.routingUrl)
       ) {
         return {
           response: {
             code: EnumStatusCode.ERR,
             details:
-              `Routing URL "${req.routingUrl}" is not valid for a gRPC service subgraph. ` +
-              `Use http(s)://host:port for ConnectRPC or a supported gRPC naming scheme for native gRPC.`,
+              `Routing URL must follow gRPC naming scheme. ` +
+              `See https://grpc.io/docs/guides/custom-name-resolution/ for examples.`,
           },
           compositionErrors: [],
           deploymentErrors: [],

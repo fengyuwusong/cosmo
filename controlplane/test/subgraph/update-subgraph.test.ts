@@ -226,13 +226,14 @@ describe('Update subgraph tests', () => {
   });
 
   describe('GRPC Service subgraph update tests', () => {
-    test('Should allow updating a GRPC service subgraph with HTTP/HTTPS routing URL', async (testContext) => {
+    test('Should not allow updating a GRPC service subgraph with HTTP/HTTPS routing URL', async (testContext) => {
       const { client, server } = await SetupTest({ dbname });
       testContext.onTestFinished(() => server.close());
 
       const grpcServiceName = genID('grpc-service');
       const grpcServiceLabel = genUniqueLabel('grpc-service');
 
+      // First create a GRPC service subgraph with valid gRPC naming scheme
       const createResp = await client.createFederatedSubgraph({
         name: grpcServiceName,
         namespace: DEFAULT_NAMESPACE,
@@ -243,21 +244,25 @@ describe('Update subgraph tests', () => {
 
       expect(createResp.response?.code).toBe(EnumStatusCode.OK);
 
+      // Try to update with HTTP URL
       const updateResponseHttp = await client.updateSubgraph({
         name: grpcServiceName,
         namespace: DEFAULT_NAMESPACE,
         routingUrl: 'http://localhost:8080',
       });
 
-      expect(updateResponseHttp.response?.code).toBe(EnumStatusCode.OK);
+      expect(updateResponseHttp.response?.code).toBe(EnumStatusCode.ERR);
+      expect(updateResponseHttp.response?.details).toContain('Routing URL must follow gRPC naming scheme');
 
+      // Try to update with HTTPS URL
       const updateResponseHttps = await client.updateSubgraph({
         name: grpcServiceName,
         namespace: DEFAULT_NAMESPACE,
         routingUrl: 'https://example.com:8080',
       });
 
-      expect(updateResponseHttps.response?.code).toBe(EnumStatusCode.OK);
+      expect(updateResponseHttps.response?.code).toBe(EnumStatusCode.ERR);
+      expect(updateResponseHttps.response?.details).toContain('Routing URL must follow gRPC naming scheme');
     });
 
     test('Should allow updating a GRPC service subgraph with valid gRPC naming scheme URLs', async (testContext) => {

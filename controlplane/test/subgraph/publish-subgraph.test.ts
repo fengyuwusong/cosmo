@@ -1137,7 +1137,7 @@ describe('Publish subgraph tests', () => {
       },
     );
 
-    test('Should allow publishing a GRPC service subgraph with HTTP/HTTPS routing URL', async (testContext) => {
+    test('Should not allow publishing a GRPC service subgraph with HTTP/HTTPS routing URL', async (testContext) => {
       const { client, server } = await SetupTest({
         dbname,
       });
@@ -1145,6 +1145,7 @@ describe('Publish subgraph tests', () => {
 
       const grpcServiceLabel = genUniqueLabel('grpc-service');
 
+      // Test HTTP URL when creating and publishing in one step
       const publishResponseHttp = await client.publishFederatedSubgraph({
         name: genID('grpc-service-http'),
         namespace: 'default',
@@ -1155,8 +1156,10 @@ describe('Publish subgraph tests', () => {
         labels: [grpcServiceLabel],
       });
 
-      expect(publishResponseHttp.response?.code).toBe(EnumStatusCode.OK);
+      expect(publishResponseHttp.response?.code).toBe(EnumStatusCode.ERR);
+      expect(publishResponseHttp.response?.details).toContain('Routing URL must follow gRPC naming scheme');
 
+      // Test HTTPS URL when creating and publishing in one step
       const publishResponseHttps = await client.publishFederatedSubgraph({
         name: genID('grpc-service-https'),
         namespace: 'default',
@@ -1167,7 +1170,8 @@ describe('Publish subgraph tests', () => {
         labels: [grpcServiceLabel],
       });
 
-      expect(publishResponseHttps.response?.code).toBe(EnumStatusCode.OK);
+      expect(publishResponseHttps.response?.code).toBe(EnumStatusCode.ERR);
+      expect(publishResponseHttps.response?.details).toContain('Routing URL must follow gRPC naming scheme');
     });
 
     test('Should allow publishing a GRPC service subgraph with valid gRPC naming scheme URLs', async (testContext) => {

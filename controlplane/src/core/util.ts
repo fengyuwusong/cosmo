@@ -931,37 +931,6 @@ export function isValidGrpcNamingScheme(url: string): boolean {
 }
 
 /**
- * Validates routing URLs accepted for GRPC_SERVICE subgraphs. Native gRPC
- * keeps using the existing resolver schemes, while ConnectRPC requires an
- * absolute HTTP(S) URL without credentials, query parameters, or fragments.
- */
-export function isValidGrpcSubgraphRoutingURL(url: string): boolean {
-  const value = url.trim();
-  if (!value || value !== url) {
-    return false;
-  }
-
-  if (!/^https?:\/\//i.test(value)) {
-    return isValidGrpcNamingScheme(value);
-  }
-
-  try {
-    const parsed = new URL(value);
-    return (
-      (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
-      parsed.host.length > 0 &&
-      parsed.username.length === 0 &&
-      parsed.password.length === 0 &&
-      parsed.search.length === 0 &&
-      parsed.hash.length === 0 &&
-      !/%(?![\dA-Fa-f]{2})/.test(value)
-    );
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Applies the IdP namespace gate to a list-query's WHERE conditions, based on
  * the actor's {@link NamespaceAccess}:
  *

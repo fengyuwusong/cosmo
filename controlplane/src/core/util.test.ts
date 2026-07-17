@@ -3,7 +3,6 @@ import {
   extractOperationNames,
   hasLabelsChanged,
   isValidGrpcNamingScheme,
-  isValidGrpcSubgraphRoutingURL,
   isValidLabels,
   isValidNamespaceName,
   normalizePagination,
@@ -523,33 +522,5 @@ describe('isValidGrpcNamingScheme', () => {
       const result = normalizePagination({ offset: 2000 }, { maxOffset: 1000 });
       expect(result.offset).toBe(1000);
     });
-  });
-});
-
-describe('isValidGrpcSubgraphRoutingURL', () => {
-  test.each([
-    'http://localhost:8080',
-    'https://api.example.com',
-    'https://api.example.com:8443/rpc/',
-    'dns:///example.com:8080',
-    'localhost:8080',
-    'unix:/tmp/socket',
-  ])('accepts %s', (url) => {
-    expect(isValidGrpcSubgraphRoutingURL(url)).toBe(true);
-  });
-
-  test.each([
-    '',
-    '   ',
-    'http://',
-    'https://',
-    ' https://example.com/rpc ',
-    'https://user@example.com/rpc',
-    'https://example.com/rpc?encoding=json',
-    'https://example.com/rpc#method',
-    'https://example.com/%zz',
-    'ftp://example.com',
-  ])('rejects %s', (url) => {
-    expect(isValidGrpcSubgraphRoutingURL(url)).toBe(false);
   });
 });

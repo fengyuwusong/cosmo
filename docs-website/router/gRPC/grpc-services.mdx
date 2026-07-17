@@ -109,6 +109,8 @@ ConnectRPC routing URLs must be absolute HTTP(S) URLs, for example `https://proj
 
 The selected protocol applies globally to remote gRPC service subgraphs. The Router validates each effective routing URL after local overrides are applied and rejects an incompatible graph without falling back to the other protocol. Router Plugins are unaffected and always use native gRPC.
 
+The Control Plane routing URL for a gRPC service remains a native gRPC resolver target in this first release. ConnectRPC Router deployments must keep local HTTP(S) routing URL overrides. Override keys use the exact subgraph name from each router config, so feature subgraphs with generated names require their own entries.
+
 ### TLS and HTTP Behavior
 
 ConnectRPC uses the Router's HTTP transport and `tls.client` configuration. Native gRPC and Router Plugins use `tls.client_grpc`. ConnectRPC also inherits HTTP traffic shaping, including the default 60-second request timeout, query retries, circuit breakers, proxy environment variables, connection-pool limits, and origin hooks.
@@ -124,11 +126,11 @@ Only unary RPC execution is supported. GraphQL subscriptions cannot be implement
 Use local [subgraph routing URL overrides](/router/proxy-capabilities/override-subgraph-config) so protocol and URL changes can be deployed together:
 
 1. Upgrade every Router binary while all deployments still use native gRPC URLs.
-2. In each Router deployment, atomically switch `grpc_protocol.default_protocol` to `connectrpc` and override every remote gRPC service URL to HTTP(S). Move custom CA or mTLS settings from `tls.client_grpc` to `tls.client` in the same change.
-3. After all deployments are healthy, publish the HTTP(S) routing URLs to the Control Plane.
-4. Remove the temporary local URL overrides.
+2. Add HTTP(S) routing URL overrides for every remote gRPC service in every base and feature graph config. Use each config's exact subgraph name.
+3. In each Router deployment, atomically switch `grpc_protocol.default_protocol` to `connectrpc` and deploy the overrides. Move custom CA or mTLS settings from `tls.client_grpc` to `tls.client` in the same change.
+4. Verify every deployment, then keep the local overrides while ConnectRPC is enabled. The Control Plane routing URL remains the native gRPC resolver target.
 
-Rollback in reverse order: restore local native gRPC URL overrides and `grpc_protocol` together, verify the deployment, publish native gRPC URLs again, then remove the overrides. The first release does not coordinate protocol choice across Router deployments or automatically protect older Router binaries, so the binary upgrade must happen before publishing HTTP(S) gRPC service URLs.
+Rollback by switching `grpc_protocol` back to `grpc` and removing the HTTP(S) overrides in the same deployment. The Router validates every base and feature graph before it starts, so a missing or incompatible override intentionally prevents startup instead of allowing a partially migrated federation.
 
 ### Security
 - Implement proper authentication between router and services
