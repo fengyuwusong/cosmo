@@ -48,8 +48,8 @@ func ValidateRoutingURL(protocol Protocol, rawURL string) error {
 		return validateConnectURL(rawURL)
 	}
 
-	scheme, _, _ := strings.Cut(rawURL, ":")
-	if strings.EqualFold(scheme, "http") || strings.EqualFold(scheme, "https") {
+	lowerURL := strings.ToLower(rawURL)
+	if strings.HasPrefix(lowerURL, "http://") || strings.HasPrefix(lowerURL, "https://") {
 		return fmt.Errorf("native gRPC requires a gRPC resolver address, not an HTTP(S) URL")
 	}
 

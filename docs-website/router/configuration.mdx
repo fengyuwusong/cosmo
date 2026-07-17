@@ -484,6 +484,8 @@ The `tls.client_grpc` settings below apply to native gRPC subgraphs and Router P
 
 ConnectRPC subgraphs use the HTTP transport and therefore inherit `tls.client` settings instead. A deployment moving from native gRPC to ConnectRPC must move any custom CA or mTLS configuration from `tls.client_grpc` to `tls.client` as part of the same rollout.
 
+When ConnectRPC is selected, the Router rejects enabled `tls.client_grpc.subgraphs` entries that match remote ConnectRPC subgraphs. An enabled `tls.client_grpc.all` produces a startup warning because it is ignored by remote ConnectRPC subgraphs but may still be used by Router Plugins.
+
 | Environment Variable                               | YAML                                               | Required                | Description                                                                                              | Default Value |
 | -------------------------------------------------- | -------------------------------------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------- | ------------- |
 | TLS_CLIENT_GRPC_ALL_ENABLED                        | tls.client_grpc.all.enabled                        | <Icon icon="check-square" /> | Enable TLS for all gRPC subgraph connections.                                                       |               |

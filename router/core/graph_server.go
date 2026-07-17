@@ -161,6 +161,17 @@ func newGraphServer(routerCtx context.Context, r *Router, response *routerconfig
 		return nil, fmt.Errorf(`the compatibility version "%s" is not compatible with this router version`, response.Config.CompatibilityVersion)
 	}
 
+	resolvedGRPCProtocol, err := grpcprotocol.Resolve(r.grpcProtocol)
+	if err != nil {
+		return nil, fmt.Errorf("invalid grpc_protocol configuration: %w", err)
+	}
+	if err := validateGRPCSubgraphRoutingURLs(response.Config, resolvedGRPCProtocol.Protocol, r.overrideRoutingURLConfiguration, r.overrides); err != nil {
+		return nil, err
+	}
+	if err := validateConnectRPCTLSConfiguration(response.Config, resolvedGRPCProtocol.Protocol, r.tls.settings.ClientGRPC, r.logger); err != nil {
+		return nil, err
+	}
+
 	// Active-connection tracking via TraceDialer is only needed when ConnectionStats is on.
 	// The httptrace-based network metrics attach in the RoundTripper and don't require the dialer.
 	networkStatsEnabled := r.metricConfig.OpenTelemetry.NetworkStats || r.metricConfig.Prometheus.NetworkStats
@@ -341,14 +352,6 @@ func newGraphServer(routerCtx context.Context, r *Router, response *routerconfig
 
 	routingUrlGroupings, err := getRoutingUrlGroupingForCircuitBreakers(response.Config, s.overrideRoutingURLConfiguration, s.overrides)
 	if err != nil {
-		return nil, err
-	}
-
-	resolvedGRPCProtocol, err := grpcprotocol.Resolve(s.grpcProtocol)
-	if err != nil {
-		return nil, fmt.Errorf("invalid grpc_protocol configuration: %w", err)
-	}
-	if err := validateGRPCSubgraphRoutingURLs(response.Config, resolvedGRPCProtocol.Protocol, s.overrideRoutingURLConfiguration, s.overrides); err != nil {
 		return nil, err
 	}
 
@@ -2517,6 +2520,79 @@ func connectSubgraphConfigurations(
 	}
 
 	return connectSubgraphs
+}
+
+func validateConnectRPCTLSConfiguration(
+	routerConfig *nodev1.RouterConfig,
+	protocol grpcprotocol.Protocol,
+	grpcTLS config.GRPCClientTLSConfiguration,
+	logger *zap.Logger,
+) error {
+	if protocol != grpcprotocol.ProtocolConnectRPC || !grpcTLS.Enabled() {
+		return nil
+	}
+
+	remoteSubgraphs := remoteGRPCSubgraphNames(routerConfig)
+	if len(remoteSubgraphs) == 0 {
+		return nil
+	}
+
+	invalidSubgraphs := make([]string, 0)
+	for subgraphName, tlsConfig := range grpcTLS.Subgraphs {
+		if !tlsConfig.Enabled {
+			continue
+		}
+		if _, ok := remoteSubgraphs[subgraphName]; ok {
+			invalidSubgraphs = append(invalidSubgraphs, subgraphName)
+		}
+	}
+	slices.Sort(invalidSubgraphs)
+	if len(invalidSubgraphs) > 0 {
+		settings := make([]string, 0, len(invalidSubgraphs))
+		for _, subgraphName := range invalidSubgraphs {
+			settings = append(settings, fmt.Sprintf("tls.client_grpc.subgraphs[%q]", subgraphName))
+		}
+		return fmt.Errorf(
+			"%s cannot configure remote ConnectRPC subgraphs; move the settings to tls.client.subgraphs",
+			strings.Join(settings, ", "),
+		)
+	}
+
+	if grpcTLS.All.Enabled {
+		subgraphNames := slices.Sorted(maps.Keys(remoteSubgraphs))
+		logger.Warn(
+			"tls.client_grpc.all is not used by remote ConnectRPC subgraphs; move their TLS settings to tls.client.all. Router Plugins continue to use tls.client_grpc",
+			zap.Strings("subgraphs", subgraphNames),
+		)
+	}
+
+	return nil
+}
+
+func remoteGRPCSubgraphNames(routerConfig *nodev1.RouterConfig) map[string]struct{} {
+	names := make(map[string]struct{})
+	collect := func(engineConfig *nodev1.EngineConfiguration, configSubgraphs []*nodev1.Subgraph) {
+		subgraphsByID := make(map[string]string, len(configSubgraphs))
+		for _, subgraph := range configSubgraphs {
+			subgraphsByID[subgraph.GetId()] = subgraph.GetName()
+		}
+		for _, datasourceConfig := range engineConfig.GetDatasourceConfigurations() {
+			grpcConfig := datasourceConfig.GetCustomGraphql().GetGrpc()
+			if grpcConfig == nil || grpcConfig.GetPlugin() != nil {
+				continue
+			}
+			if subgraphName, ok := subgraphsByID[datasourceConfig.GetId()]; ok {
+				names[subgraphName] = struct{}{}
+			}
+		}
+	}
+
+	collect(routerConfig.GetEngineConfig(), routerConfig.GetSubgraphs())
+	for _, featureConfig := range routerConfig.GetFeatureFlagConfigs().GetConfigByFeatureFlagName() {
+		collect(featureConfig.GetEngineConfig(), featureConfig.GetSubgraphs())
+	}
+
+	return names
 }
 
 type grpcRoutingURLIssue struct {

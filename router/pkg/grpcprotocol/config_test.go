@@ -53,7 +53,10 @@ func TestValidateRoutingURL(t *testing.T) {
 		{name: "connect rejects fragment", protocol: ProtocolConnectRPC, url: "https://service/rpc#x", wantError: "fragments"},
 		{name: "grpc accepts dns", protocol: ProtocolGRPC, url: "dns:///service:443"},
 		{name: "grpc accepts bare target", protocol: ProtocolGRPC, url: "service:443"},
+		{name: "grpc accepts host named http", protocol: ProtocolGRPC, url: "http:50051"},
+		{name: "grpc accepts host named https", protocol: ProtocolGRPC, url: "https:50051"},
 		{name: "grpc rejects http", protocol: ProtocolGRPC, url: "https://service:443", wantError: "gRPC resolver address"},
+		{name: "grpc rejects case insensitive HTTP URL", protocol: ProtocolGRPC, url: "HTTP://service:50051", wantError: "gRPC resolver address"},
 		{name: "grpc rejects malformed http target", protocol: ProtocolGRPC, url: "http://%", wantError: "gRPC resolver address"},
 	}
 

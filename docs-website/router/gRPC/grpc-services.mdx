@@ -115,6 +115,8 @@ The Control Plane routing URL for a gRPC service remains a native gRPC resolver 
 
 ConnectRPC uses the Router's HTTP transport and `tls.client` configuration. Native gRPC and Router Plugins use `tls.client_grpc`. ConnectRPC also inherits HTTP traffic shaping, including the default 60-second request timeout, query retries, circuit breakers, proxy environment variables, connection-pool limits, and origin hooks.
 
+The Router rejects enabled per-subgraph `tls.client_grpc` settings for remote ConnectRPC subgraphs and warns when global `tls.client_grpc` settings are present. Move those settings to `tls.client`; Router Plugins continue to use `tls.client_grpc`.
+
 Query retries can repeat a query-backed RPC after connection errors, timeouts, or retryable HTTP status codes. Such RPCs should be idempotent, or retries should be disabled or narrowed for the affected subgraph. Mutations are not retried. Origin hooks receive the encoded Connect request and response bodies rather than GraphQL payloads.
 
 Connect responses have a 10 MB read limit. Native gRPC keeps its default 4 MB receive limit. Services implemented with `connect-go` must explicitly decode incoming `-bin` metadata headers with `connect.DecodeBinaryHeader`.
