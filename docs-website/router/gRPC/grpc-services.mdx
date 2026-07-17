@@ -7,7 +7,7 @@ icon: server
 
 ## Introduction
 
-gRPC services in Cosmo are independent, remotely deployed services that communicate with the Cosmo Router over the network using gRPC protocol. Unlike router plugins that run as local processes managed by the router, gRPC services operate as standalone microservices that can be deployed anywhere in your infrastructure.
+gRPC services in Cosmo are independent, remotely deployed services that communicate with the Cosmo Router over the network using native gRPC or ConnectRPC. Unlike router plugins that run as local processes managed by the router, gRPC services operate as standalone microservices that can be deployed anywhere in your infrastructure.
 
 This approach is ideal for distributed architectures where services are owned by different teams, require independent scaling, or need to be implemented in languages other than Go.
 
@@ -26,6 +26,7 @@ gRPC services are standalone microservices that expose their functionality throu
 - **Maintain service autonomy** while participating in the federated graph
 - **Scale independently** based on their specific requirements
 - **Support any gRPC language** - Python, Java, C#, Node.js, Rust, and many others
+- **Support native gRPC or ConnectRPC transport** without changing the GraphQL-to-protobuf mapping
 
 The key distinction from router plugins is that services are:
 - **Remotely deployed** rather than co-located with the router
@@ -93,6 +94,41 @@ gRPC services integrate into GraphQL Federation through this architecture:
 - Services must be accessible from the router over the network
 - Consider network latency and reliability in your architecture
 - Plan for service discovery and health checking
+
+## ConnectRPC Transport
+
+Native gRPC remains the default. To use ConnectRPC for every remote gRPC service subgraph in a Router deployment, add:
+
+```yaml config.yaml
+grpc_protocol:
+  default_protocol: connectrpc
+  connectrpc_encoding: proto # or json
+```
+
+ConnectRPC routing URLs must be absolute HTTP(S) URLs, for example `https://projects.example.com/rpc`. Base paths and trailing slashes are allowed. URLs containing user information, a query string, or a fragment are rejected during graph setup. Native gRPC continues to use resolver-style URLs such as `dns:///projects:443`.
+
+The selected protocol applies globally to remote gRPC service subgraphs. The Router validates each effective routing URL after local overrides are applied and rejects an incompatible graph without falling back to the other protocol. Router Plugins are unaffected and always use native gRPC.
+
+### TLS and HTTP Behavior
+
+ConnectRPC uses the Router's HTTP transport and `tls.client` configuration. Native gRPC and Router Plugins use `tls.client_grpc`. ConnectRPC also inherits HTTP traffic shaping, including the default 60-second request timeout, query retries, circuit breakers, proxy environment variables, connection-pool limits, and origin hooks.
+
+Query retries can repeat a query-backed RPC after connection errors, timeouts, or retryable HTTP status codes. Such RPCs should be idempotent, or retries should be disabled or narrowed for the affected subgraph. Mutations are not retried. Origin hooks receive the encoded Connect request and response bodies rather than GraphQL payloads.
+
+Connect responses have a 10 MB read limit. Native gRPC keeps its default 4 MB receive limit. Services implemented with `connect-go` must explicitly decode incoming `-bin` metadata headers with `connect.DecodeBinaryHeader`.
+
+Only unary RPC execution is supported. GraphQL subscriptions cannot be implemented by this datasource.
+
+### Migration and Rollback
+
+Use local [subgraph routing URL overrides](/router/proxy-capabilities/override-subgraph-config) so protocol and URL changes can be deployed together:
+
+1. Upgrade every Router binary while all deployments still use native gRPC URLs.
+2. In each Router deployment, atomically switch `grpc_protocol.default_protocol` to `connectrpc` and override every remote gRPC service URL to HTTP(S). Move custom CA or mTLS settings from `tls.client_grpc` to `tls.client` in the same change.
+3. After all deployments are healthy, publish the HTTP(S) routing URLs to the Control Plane.
+4. Remove the temporary local URL overrides.
+
+Rollback in reverse order: restore local native gRPC URL overrides and `grpc_protocol` together, verify the deployment, publish native gRPC URLs again, then remove the overrides. The first release does not coordinate protocol choice across Router deployments or automatically protect older Router binaries, so the binary upgrade must happen before publishing HTTP(S) gRPC service URLs.
 
 ### Security
 - Implement proper authentication between router and services
